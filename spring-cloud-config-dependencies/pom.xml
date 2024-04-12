@@ -6,17 +6,17 @@
 	<parent>
 		<artifactId>spring-cloud-dependencies-parent</artifactId>
 		<groupId>org.springframework.cloud</groupId>
-		<version>4.0.2-SNAPSHOT</version>
+		<version>4.1.2-SNAPSHOT</version>
 		<relativePath/>
 	</parent>
 	<artifactId>spring-cloud-config-dependencies</artifactId>
-	<version>4.0.2-SNAPSHOT</version>
+	<version>4.1.2-SNAPSHOT</version>
 	<packaging>pom</packaging>
 	<name>spring-cloud-config-dependencies</name>
 	<description>Spring Cloud Config Dependencies</description>
 	<properties>
-		<jgit.version>6.4.0.202211300538-r</jgit.version>
-		<spring-vault.version>3.0.0</spring-vault.version>
+		<jgit.version>6.6.1.202309021850-r</jgit.version>
+		<spring-vault.version>3.1.1</spring-vault.version>
 		<spring-credhub.version>2.1.1.RELEASE</spring-credhub.version>
 	</properties>
 	<dependencyManagement>

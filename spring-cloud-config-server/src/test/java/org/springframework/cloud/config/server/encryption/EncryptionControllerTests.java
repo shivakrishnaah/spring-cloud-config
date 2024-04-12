@@ -18,7 +18,6 @@ package org.springframework.cloud.config.server.encryption;
 
 import java.util.Map;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -28,6 +27,7 @@ import org.springframework.security.crypto.encrypt.TextEncryptor;
 import org.springframework.security.rsa.crypto.RsaSecretEncryptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -45,19 +45,19 @@ public class EncryptionControllerTests {
 
 	@Test
 	public void cannotDecryptWithoutKey() {
-		Assertions.assertThrows(EncryptionTooWeakException.class,
-				() -> this.controller.decrypt("foo", MediaType.TEXT_PLAIN));
+		assertThatExceptionOfType(EncryptionTooWeakException.class)
+				.isThrownBy(() -> this.controller.decrypt("foo", MediaType.TEXT_PLAIN));
 	}
 
 	@Test
 	public void cannotDecryptWithNoopEncryptor() {
-		Assertions.assertThrows(EncryptionTooWeakException.class,
-				() -> this.controller.decrypt("foo", MediaType.TEXT_PLAIN));
+		assertThatExceptionOfType(EncryptionTooWeakException.class)
+				.isThrownBy(() -> this.controller.decrypt("foo", MediaType.TEXT_PLAIN));
 	}
 
 	@Test
 	public void shouldThrowExceptionOnDecryptInvalidData() {
-		Assertions.assertThrows(InvalidCipherException.class, () -> {
+		assertThatExceptionOfType(InvalidCipherException.class).isThrownBy(() -> {
 			this.controller = new EncryptionController(new SingleTextEncryptorLocator(new RsaSecretEncryptor()));
 			this.controller.decrypt("foo", MediaType.TEXT_PLAIN);
 		});
@@ -65,7 +65,7 @@ public class EncryptionControllerTests {
 
 	@Test
 	public void shouldThrowExceptionOnDecryptWrongKey() {
-		Assertions.assertThrows(InvalidCipherException.class, () -> {
+		assertThatExceptionOfType(InvalidCipherException.class).isThrownBy(() -> {
 			RsaSecretEncryptor encryptor = new RsaSecretEncryptor();
 			this.controller = new EncryptionController(new SingleTextEncryptorLocator(new RsaSecretEncryptor()));
 			this.controller.decrypt(encryptor.encrypt("foo"), MediaType.TEXT_PLAIN);
@@ -145,12 +145,14 @@ public class EncryptionControllerTests {
 
 			@Override
 			public TextEncryptor locate(Map<String, String> keys) {
+				assertThat(keys.containsKey("key")).as("Missing encryptor key").isTrue();
+				assertThat(keys.get("key")).as("Bad encryptor key value").isEqualTo("value");
 				return this.encryptor;
 			}
 		};
 		this.controller = new EncryptionController(locator);
 		// Add space to input
-		String cipher = this.controller.encrypt("app", "default", "foo bar", MediaType.TEXT_PLAIN);
+		String cipher = this.controller.encrypt("app", "default", "{key:value}foo bar", MediaType.TEXT_PLAIN);
 		assertThat(cipher.contains("{name:app}")).as("Wrong cipher: " + cipher).isFalse();
 		String decrypt = this.controller.decrypt("app", "default", cipher, MediaType.TEXT_PLAIN);
 		assertThat(decrypt).as("Wrong decrypted plaintext: " + decrypt).isEqualTo("foo bar");

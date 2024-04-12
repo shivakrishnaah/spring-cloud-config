@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2020 the original author or authors.
+ * Copyright 2013-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ import org.apache.commons.logging.Log;
 
 import org.springframework.boot.context.config.ConfigData;
 import org.springframework.boot.context.config.ConfigData.Option;
-import org.springframework.boot.context.config.ConfigData.Options;
 import org.springframework.boot.context.config.ConfigDataLoader;
 import org.springframework.boot.context.config.ConfigDataLoaderContext;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -93,9 +92,9 @@ public class ConfigServerConfigDataLoader implements ConfigDataLoader<ConfigServ
 					return interceptor.apply(new LoadContext(context, resource, binder, this::doLoad));
 				}
 				catch (ConfigClientFailFastException e) {
-					context.getBootstrapContext()
-							.addCloseListener(event -> event.getApplicationContext().getBeanFactory()
-									.registerSingleton(ConfigClientFailFastException.class.getSimpleName(), e));
+					context.getBootstrapContext().addCloseListener(event -> {
+						throw e;
+					});
 					return new ConfigData(Collections.emptyList());
 				}
 			}
@@ -104,6 +103,7 @@ public class ConfigServerConfigDataLoader implements ConfigDataLoader<ConfigServ
 	}
 
 	public ConfigData doLoad(ConfigDataLoaderContext context, ConfigServerConfigDataResource resource) {
+
 		ConfigClientProperties properties = resource.getProperties();
 		List<PropertySource<?>> propertySources = new ArrayList<>();
 		Exception error = null;
@@ -128,7 +128,7 @@ public class ConfigServerConfigDataLoader implements ConfigDataLoader<ConfigServ
 							Map<String, Object> map = translateOrigins(source.getName(),
 									(Map<String, Object>) source.getSource());
 							propertySources.add(0,
-									new OriginTrackedMapPropertySource("configserver:" + source.getName(), map));
+									new OriginTrackedMapPropertySource("configserver:" + source.getName(), map, true));
 						}
 					}
 
@@ -166,12 +166,14 @@ public class ConfigServerConfigDataLoader implements ConfigDataLoader<ConfigServ
 								// , is used as a profile-separator for property sources
 								// from vault
 								// - is the default profile-separator for property sources
+								// TODO This is error prone logic see
+								// https://github.com/spring-cloud/spring-cloud-config/issues/2291
 								if (propertySourceName.matches(".*[-,]" + profile + ".*")) {
 									// // TODO: switch to Options.with() when implemented
 									options.add(Option.PROFILE_SPECIFIC);
 								}
 							}
-							return Options.of(options.toArray(new Option[0]));
+							return ConfigData.Options.of(options.toArray(new Option[0]));
 						});
 					}
 				}
@@ -263,8 +265,23 @@ public class ConfigServerConfigDataLoader implements ConfigDataLoader<ConfigServ
 		String name = properties.getName();
 		String profile = resource.getProfiles();
 		String token = properties.getToken();
-		int noOfUrls = properties.getUri().length;
-		if (noOfUrls > 1) {
+		String[] uris;
+		boolean discoveryEnabled = properties.getDiscovery().isEnabled();
+		ConfigClientProperties bootstrapConfigClientProperties = context.getBootstrapContext()
+				.get(ConfigClientProperties.class);
+		// In the case where discovery is enabled we need to extract the config server
+		// uris, username, and password
+		// from the properties from the context. These are set in
+		// ConfigServerInstanceMonitor.refresh which will only
+		// be called the first time we fetch configuration.
+		if (discoveryEnabled) {
+			uris = bootstrapConfigClientProperties.getUri();
+		}
+		else {
+			uris = properties.getUri();
+		}
+		int noOfUrls = uris.length;
+		if (uris.length > 1) {
 			logger.info("Multiple Config Server Urls found listed.");
 		}
 
@@ -282,10 +299,19 @@ public class ConfigServerConfigDataLoader implements ConfigDataLoader<ConfigServ
 				.get(ConfigClientRequestTemplateFactory.class);
 
 		for (int i = 0; i < noOfUrls; i++) {
-			ConfigClientProperties.Credentials credentials = properties.getCredentials(i);
-			String uri = credentials.getUri();
-			String username = credentials.getUsername();
-			String password = credentials.getPassword();
+			String username;
+			String password;
+			String uri = uris[i];
+			if (discoveryEnabled) {
+				password = bootstrapConfigClientProperties.getPassword();
+				username = bootstrapConfigClientProperties.getUsername();
+			}
+			else {
+				ConfigClientProperties.Credentials credentials = properties.getCredentials(i);
+				uri = credentials.getUri();
+				username = credentials.getUsername();
+				password = credentials.getPassword();
+			}
 
 			logger.info("Fetching config from server at : " + uri);
 
@@ -315,7 +341,7 @@ public class ConfigServerConfigDataLoader implements ConfigDataLoader<ConfigServ
 				}
 			}
 			catch (ResourceAccessException e) {
-				logger.info("Connect Timeout Exception on Url - " + uri + ". Will try the next url if available");
+				logger.info("Exception on Url - " + uri + ":" + e + ". Will be trying the next url if available");
 				if (i == noOfUrls - 1) {
 					throw e;
 				}

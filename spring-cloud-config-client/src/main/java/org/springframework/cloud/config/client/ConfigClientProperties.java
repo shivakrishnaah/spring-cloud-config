@@ -31,6 +31,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.cloud.config.environment.EnvironmentMediaType;
 import org.springframework.cloud.configuration.TlsProperties;
 import org.springframework.core.env.Environment;
+import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -47,11 +48,16 @@ public class ConfigClientProperties {
 	public static final String PREFIX = "spring.cloud.config";
 
 	/**
+	 * Default application name.
+	 */
+	public static final String DEFAULT_APPLICATION = "application";
+
+	/**
 	 * Placeholder string that allows ${spring.cloud.config.name} to override
 	 * ${spring.application.name:application}.
 	 */
 	public static final String NAME_PLACEHOLDER = "${" + ConfigClientProperties.PREFIX
-			+ ".name:${spring.application.name:application}}";
+			+ ".name:${spring.application.name:" + DEFAULT_APPLICATION + "}}";
 
 	/**
 	 * Name of config discovery enabled property.
@@ -92,12 +98,12 @@ public class ConfigClientProperties {
 	/**
 	 * Name of application used to fetch remote properties.
 	 */
-	@Value("${spring.application.name:application}")
+	@Value("${spring.application.name:" + DEFAULT_APPLICATION + "}")
 	private String name;
 
 	/**
 	 * The label name to use to pull remote configuration properties. The default is set
-	 * on the server (generally "master" for a git based server).
+	 * on the server (generally "main" for a git based server).
 	 */
 	private String label;
 
@@ -333,7 +339,7 @@ public class ConfigClientProperties {
 			URL url = new URL(uri);
 			String userInfo = url.getUserInfo();
 			// no credentials in url, return explicit credentials
-			if (StringUtils.isEmpty(userInfo) || ":".equals(userInfo)) {
+			if (ObjectUtils.isEmpty(userInfo) || ":".equals(userInfo)) {
 				return result;
 			}
 			String bare = UriComponentsBuilder.fromHttpUrl(uri).userInfo(null).build().toUriString();

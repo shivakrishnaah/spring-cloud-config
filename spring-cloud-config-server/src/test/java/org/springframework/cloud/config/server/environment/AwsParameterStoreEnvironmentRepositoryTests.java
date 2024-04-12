@@ -63,7 +63,7 @@ public class AwsParameterStoreEnvironmentRepositoryTests {
 
 	@Container
 	private static final LocalStackContainer localstack = new LocalStackContainer(
-			DockerImageName.parse("localstack/localstack:0.14.2")).withServices(SSM);
+			DockerImageName.parse("localstack/localstack:1.3.1")).withServices(SSM);
 
 	private final StaticCredentialsProvider staticCredentialsProvider = StaticCredentialsProvider
 			.create(AwsBasicCredentials.create(localstack.getAccessKey(), localstack.getSecretKey()));
@@ -549,6 +549,35 @@ public class AwsParameterStoreEnvironmentRepositoryTests {
 
 		expected.addAll(Arrays.asList(appSpecificProdParamsPs, sharedProdParamsPs, appSpecificDefaultParamsPs,
 				sharedDefaultParamsPs, appSpecificParamsPs, sharedParamsPs));
+
+		putParameters(expected);
+
+		// Act
+		Environment result = repository.findOne(application, profile, null);
+
+		// Assert
+		assertThat(result).usingRecursiveComparison().withStrictTypeChecking().isEqualTo(expected);
+	}
+
+	@Test
+	public void testFindOneWithExistentApplicationAndMultipleOrderedExistentProfiles() {
+		// Arrange
+		String application = "application";
+		String profile = "profile1,profile2,profile3";
+		String[] profiles = StringUtils.commaDelimitedListToStringArray(profile);
+
+		String profile1ParamsPsName = "aws:ssm:parameter:/config/application-profile1/";
+		PropertySource profile1ParamsPs = new PropertySource(profile1ParamsPsName, SHARED_PROPERTIES);
+
+		String profile2ParamsPsName = "aws:ssm:parameter:/config/application-profile2/";
+		PropertySource profile2ParamsPs = new PropertySource(profile2ParamsPsName, SHARED_DEFAULT_PROPERTIES);
+
+		String profile3ParamsPsName = "aws:ssm:parameter:/config/application-profile3/";
+		PropertySource profile3ParamsPs = new PropertySource(profile3ParamsPsName, SHARED_PRODUCTION_PROPERTIES);
+
+		Environment expected = new Environment(application, profiles, null, null, null);
+
+		expected.addAll(Arrays.asList(profile3ParamsPs, profile2ParamsPs, profile1ParamsPs));
 
 		putParameters(expected);
 

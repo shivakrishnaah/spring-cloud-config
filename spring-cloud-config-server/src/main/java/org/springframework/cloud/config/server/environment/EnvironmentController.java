@@ -61,6 +61,7 @@ import static org.springframework.cloud.config.server.support.EnvironmentPropert
  * @author Ivan Corrales Solera
  * @author Daniel Frey
  * @author Ian Bondoc
+ * @author Chen Li
  *
  */
 @RestController
@@ -103,12 +104,14 @@ public class EnvironmentController {
 		this.acceptEmpty = acceptEmpty;
 	}
 
-	@GetMapping(path = "/{name}/{profiles:[^\\.]*}", produces = MediaType.APPLICATION_JSON_VALUE)
+	@GetMapping(path = "/{name}/{profiles:(?!.*\\b\\.(?:ya?ml|properties|json)\\b).*}",
+			produces = MediaType.APPLICATION_JSON_VALUE)
 	public Environment defaultLabel(@PathVariable String name, @PathVariable String profiles) {
 		return getEnvironment(name, profiles, null, false);
 	}
 
-	@GetMapping(path = "/{name}/{profiles:[^\\.]*}", produces = EnvironmentMediaType.V2_JSON)
+	@GetMapping(path = "/{name}/{profiles:(?!.*\\b\\.(?:ya?ml|properties|json)\\b).*}",
+			produces = EnvironmentMediaType.V2_JSON)
 	public Environment defaultLabelIncludeOrigin(@PathVariable String name, @PathVariable String profiles) {
 		return getEnvironment(name, profiles, null, true);
 	}
@@ -289,45 +292,31 @@ public class EnvironmentController {
 	}
 
 	private Map<String, Object> convertToProperties(Environment profiles) {
-
-		// Map of unique keys containing full map of properties for each unique
-		// key
-		Map<String, Map<String, Object>> map = new LinkedHashMap<>();
 		List<PropertySource> sources = new ArrayList<>(profiles.getPropertySources());
 		Collections.reverse(sources);
 		Map<String, Object> combinedMap = new LinkedHashMap<>();
+		Map<String, Map<String, Object>> arrayMap = new LinkedHashMap<>();
 		for (PropertySource source : sources) {
-
 			@SuppressWarnings("unchecked")
 			Map<String, Object> value = (Map<String, Object>) source.getSource();
-			for (String key : value.keySet()) {
+			Map<String, Map<String, Object>> currentArrayMap = new LinkedHashMap<>();
 
-				if (!key.contains("[")) {
-
-					// Not an array, add unique key to the map
-					combinedMap.put(key, value.get(key));
-
+			for (Entry<String, Object> entry : value.entrySet()) {
+				if (!entry.getKey().contains("[")) {
+					combinedMap.put(entry.getKey(), entry.getValue());
 				}
 				else {
-
-					// An existing array might have already been added to the property map
-					// of an unequal size to the current array. Replace the array key in
-					// the current map.
-					key = key.substring(0, key.indexOf("["));
-					Map<String, Object> filtered = new LinkedHashMap<>();
-					for (String index : value.keySet()) {
-						if (index.startsWith(key + "[")) {
-							filtered.put(index, value.get(index));
-						}
-					}
-					map.put(key, filtered);
+					String prefixKey = entry.getKey().substring(0, entry.getKey().indexOf("["));
+					currentArrayMap.computeIfAbsent(prefixKey, k -> new LinkedHashMap<>()).put(entry.getKey(),
+							entry.getValue());
 				}
 			}
-
+			// Override array properties by prefix key
+			arrayMap.putAll(currentArrayMap);
 		}
 
 		// Combine all unique keys for array values into the combined map
-		for (Entry<String, Map<String, Object>> entry : map.entrySet()) {
+		for (Entry<String, Map<String, Object>> entry : arrayMap.entrySet()) {
 			combinedMap.putAll(entry.getValue());
 		}
 
@@ -479,6 +468,7 @@ public class EnvironmentController {
 		private String getKey() {
 			// Consider initial value or previous char '.' or '['
 			int start = this.currentPos + 1;
+			int openingBracketPosition = -1;
 			for (int i = start; i < this.propertyKey.length(); i++) {
 				char currentChar = this.propertyKey.charAt(i);
 				if (currentChar == '.') {
@@ -487,9 +477,20 @@ public class EnvironmentController {
 					break;
 				}
 				else if (currentChar == '[') {
-					this.valueType = NodeType.ARRAY;
-					this.currentPos = i;
-					break;
+					openingBracketPosition = i;
+				}
+				else if (currentChar == ']') {
+					String bracketContents = this.propertyKey.substring(openingBracketPosition + 1, i);
+					try {
+						Integer.parseInt(bracketContents);
+						this.valueType = NodeType.ARRAY;
+						this.currentPos = openingBracketPosition;
+						break;
+					}
+					catch (NumberFormatException e) {
+						// This means the key contains a [ and a ] but the contents were
+						// not an integer so it's not an array
+					}
 				}
 			}
 			// If there's no delimiter then it's a key of a leaf

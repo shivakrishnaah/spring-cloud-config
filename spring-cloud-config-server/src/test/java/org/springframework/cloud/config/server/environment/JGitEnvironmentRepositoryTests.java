@@ -109,6 +109,8 @@ public class JGitEnvironmentRepositoryTests {
 
 	private File basedir = new File("target/config");
 
+	private final ObjectId newObjectId = ObjectId.fromRaw(new int[] { 1, 2, 3, 4, 5 });
+
 	@BeforeAll
 	public static void initClass() {
 		// mock Git configuration to make tests independent of local Git configuration
@@ -129,7 +131,7 @@ public class JGitEnvironmentRepositoryTests {
 	@Test
 	public void vanilla() {
 		Environment environment = this.repository.findOne("bar", "staging", "master");
-		assertThat(environment.getPropertySources().size()).isEqualTo(2);
+		assertThat(environment.getPropertySources()).hasSize(2);
 		assertThat(environment.getPropertySources().get(0).getName())
 				.isEqualTo(this.repository.getUri() + "/bar.properties");
 		assertVersion(environment);
@@ -141,7 +143,7 @@ public class JGitEnvironmentRepositoryTests {
 		this.repository.setUri(uri);
 		this.repository.setSearchPaths(new String[] { "sub" });
 		Environment environment = this.repository.findOne("bar", "staging", "master");
-		assertThat(environment.getPropertySources().size()).isEqualTo(2);
+		assertThat(environment.getPropertySources()).hasSize(2);
 		assertThat(environment.getPropertySources().get(0).getName())
 				.isEqualTo(this.repository.getUri() + "/sub/application.yml");
 		assertVersion(environment);
@@ -153,7 +155,7 @@ public class JGitEnvironmentRepositoryTests {
 		this.repository.setUri(uri);
 		this.repository.setSearchPaths(new String[] { "{application}" });
 		Environment environment = this.repository.findOne("sub", "staging", "master");
-		assertThat(environment.getPropertySources().size()).isEqualTo(1);
+		assertThat(environment.getPropertySources()).hasSize(1);
 		assertThat(environment.getPropertySources().get(0).getName())
 				.isEqualTo(this.repository.getUri() + "/sub/application.yml");
 		assertVersion(environment);
@@ -172,7 +174,7 @@ public class JGitEnvironmentRepositoryTests {
 		this.repository.setUri(uri);
 		this.repository.setSearchPaths(new String[] { "sub*" });
 		Environment environment = this.repository.findOne("bar", "staging", "master");
-		assertThat(environment.getPropertySources().size()).isEqualTo(2);
+		assertThat(environment.getPropertySources()).hasSize(2);
 		assertThat(environment.getPropertySources().get(0).getName())
 				.isEqualTo(this.repository.getUri() + "/sub/application.yml");
 		assertVersion(environment);
@@ -182,7 +184,7 @@ public class JGitEnvironmentRepositoryTests {
 	public void branch() {
 		this.repository.setBasedir(this.basedir);
 		Environment environment = this.repository.findOne("bar", "staging", "raw");
-		assertThat(environment.getPropertySources().size()).isEqualTo(2);
+		assertThat(environment.getPropertySources()).hasSize(2);
 		assertThat(environment.getPropertySources().get(0).getName())
 				.isEqualTo(this.repository.getUri() + "/bar.properties");
 		assertVersion(environment);
@@ -192,7 +194,7 @@ public class JGitEnvironmentRepositoryTests {
 	public void tag() {
 		this.repository.setBasedir(this.basedir);
 		Environment environment = this.repository.findOne("bar", "staging", "foo");
-		assertThat(environment.getPropertySources().size()).isEqualTo(2);
+		assertThat(environment.getPropertySources()).hasSize(2);
 		assertThat(environment.getPropertySources().get(0).getName())
 				.isEqualTo(this.repository.getUri() + "/bar.properties");
 		assertVersion(environment);
@@ -202,7 +204,7 @@ public class JGitEnvironmentRepositoryTests {
 	public void basedir() {
 		this.repository.setBasedir(this.basedir);
 		Environment environment = this.repository.findOne("bar", "staging", "master");
-		assertThat(environment.getPropertySources().size()).isEqualTo(2);
+		assertThat(environment.getPropertySources()).hasSize(2);
 		assertThat(environment.getPropertySources().get(0).getName())
 				.isEqualTo(this.repository.getUri() + "/bar.properties");
 		assertVersion(environment);
@@ -214,7 +216,7 @@ public class JGitEnvironmentRepositoryTests {
 		assertThat(new File(this.basedir, ".nothing").createNewFile()).isTrue();
 		this.repository.setBasedir(this.basedir);
 		Environment environment = this.repository.findOne("bar", "staging", "master");
-		assertThat(environment.getPropertySources().size()).isEqualTo(2);
+		assertThat(environment.getPropertySources()).hasSize(2);
 		assertThat(environment.getPropertySources().get(0).getName())
 				.isEqualTo(this.repository.getUri() + "/bar.properties");
 		assertVersion(environment);
@@ -522,6 +524,32 @@ public class JGitEnvironmentRepositoryTests {
 	}
 
 	@Test
+	public void shouldNotRefreshWhenNegativeValue() throws Exception {
+		Git git = mock(Git.class);
+		StatusCommand statusCommand = mock(StatusCommand.class);
+		Status status = mock(Status.class);
+		Repository repository = mock(Repository.class);
+		StoredConfig storedConfig = mock(StoredConfig.class);
+
+		when(git.status()).thenReturn(statusCommand);
+		when(git.getRepository()).thenReturn(repository);
+		when(repository.getConfig()).thenReturn(storedConfig);
+		when(storedConfig.getString("remote", "origin", "url")).thenReturn("http://example/git");
+		when(statusCommand.call()).thenReturn(status);
+		when(status.isClean()).thenReturn(true);
+
+		JGitEnvironmentProperties properties = new JGitEnvironmentProperties();
+		properties.setRefreshRate(-1);
+
+		JGitEnvironmentRepository repo = new JGitEnvironmentRepository(this.environment, properties,
+				ObservationRegistry.NOOP);
+
+		boolean shouldPull = repo.shouldPull(git);
+
+		assertThat(shouldPull).as("shouldPull was true").isFalse();
+	}
+
+	@Test
 	public void shouldUpdateLastRefresh() throws Exception {
 		Git git = mock(Git.class);
 		StatusCommand statusCommand = mock(StatusCommand.class);
@@ -600,14 +628,6 @@ public class JGitEnvironmentRepositoryTests {
 		// here is our exception we are testing
 		when(mergeCommand.call()).thenThrow(new NotMergedException());
 
-		// refresh()->return
-		// git.getRepository().findRef("HEAD").getObjectId().getName();
-		Ref headRef = mock(Ref.class);
-		when(this.database.findRef(anyString())).thenReturn(headRef);
-
-		ObjectId newObjectId = ObjectId.fromRaw(new int[] { 1, 2, 3, 4, 5 });
-		when(headRef.getObjectId()).thenReturn(newObjectId);
-
 		SearchPathLocator.Locations locations = this.repository.getLocations("bar", "staging", null);
 		assertThat(newObjectId.getName()).isEqualTo(locations.getVersion());
 
@@ -636,7 +656,17 @@ public class JGitEnvironmentRepositoryTests {
 
 			@Override
 			public RefDatabase getRefDatabase() {
-				return JGitEnvironmentRepositoryTests.this.database;
+				RefDatabase database = mock(RefDatabase.class);
+				Ref headRef = mock(Ref.class);
+				ObjectId newObjectId = ObjectId.fromRaw(new int[] { 1, 2, 3, 4, 5 });
+				when(headRef.getObjectId()).thenReturn(newObjectId);
+				try {
+					when(database.findRef(anyString())).thenReturn(headRef);
+				}
+				catch (IOException e) {
+					throw new RuntimeException(e);
+				}
+				return database;
 			}
 
 			@Override
@@ -712,13 +742,6 @@ public class JGitEnvironmentRepositoryTests {
 		when(mergeCommand.call()).thenThrow(new NotMergedException()); // here is our
 																		// exception we
 																		// are testing
-
-		// refresh()->return git.getRepository().findRef("HEAD").getObjectId().getName();
-		Ref headRef = mock(Ref.class);
-		when(this.database.findRef(anyString())).thenReturn(headRef);
-
-		ObjectId newObjectId = ObjectId.fromRaw(new int[] { 1, 2, 3, 4, 5 });
-		when(headRef.getObjectId()).thenReturn(newObjectId);
 
 		SearchPathLocator.Locations locations = this.repository.getLocations("bar", "staging", "master");
 		assertThat(newObjectId.getName()).isEqualTo(locations.getVersion());
@@ -831,14 +854,6 @@ public class JGitEnvironmentRepositoryTests {
 		ResetCommand resetCommand = mock(ResetCommand.class);
 		when(git.reset()).thenReturn(resetCommand);
 		when(resetCommand.call()).thenReturn(ref);
-
-		// refresh()->return
-		// git.getRepository().findRef("HEAD").getObjectId().getName();
-		Ref headRef = mock(Ref.class);
-		when(this.database.findRef(anyString())).thenReturn(headRef);
-
-		ObjectId newObjectId = ObjectId.fromRaw(new int[] { 1, 2, 3, 4, 5 });
-		when(headRef.getObjectId()).thenReturn(newObjectId);
 
 		SearchPathLocator.Locations locations = this.repository.getLocations("bar", "staging", "master");
 		assertThat(newObjectId.getName()).isEqualTo(locations.getVersion());
@@ -1173,14 +1188,6 @@ public class JGitEnvironmentRepositoryTests {
 		when(mergeCommand.call()).thenReturn(mergeResult);
 		when(mergeResult.getMergeStatus()).thenReturn(mergeStatus);
 		when(mergeStatus.isSuccessful()).thenReturn(true);
-
-		// refresh()->return
-		// git.getRepository().findRef("HEAD").getObjectId().getName();
-		Ref headRef = mock(Ref.class);
-		when(this.database.findRef(anyString())).thenReturn(headRef);
-
-		ObjectId newObjectId = ObjectId.fromRaw(new int[] { 1, 2, 3, 4, 5 });
-		when(headRef.getObjectId()).thenReturn(newObjectId);
 
 		SearchPathLocator.Locations locations = this.repository.getLocations("bar", "staging", "master");
 		assertThat(newObjectId.getName()).isEqualTo(locations.getVersion());

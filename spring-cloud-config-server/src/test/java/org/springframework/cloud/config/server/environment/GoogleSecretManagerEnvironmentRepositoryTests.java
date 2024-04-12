@@ -29,7 +29,6 @@ import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.cloud.secretmanager.v1.SecretPayload;
 import com.google.cloud.secretmanager.v1.SecretVersion;
 import com.google.protobuf.ByteString;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatcher;
 import org.mockito.ArgumentMatchers;
@@ -43,6 +42,7 @@ import org.springframework.cloud.config.server.environment.secretmanager.HttpHea
 import org.springframework.web.client.RestTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -60,7 +60,7 @@ public class GoogleSecretManagerEnvironmentRepositoryTests {
 
 	@Test
 	public void testGetUnsupportedStrategy() {
-		Assertions.assertThrows(IllegalArgumentException.class, () -> {
+		assertThatExceptionOfType(IllegalArgumentException.class).isThrownBy(() -> {
 			GoogleSecretManagerEnvironmentProperties properties = new GoogleSecretManagerEnvironmentProperties();
 			SecretManagerServiceClient mock = mock(SecretManagerServiceClient.class);
 			properties.setVersion(2);
@@ -83,12 +83,12 @@ public class GoogleSecretManagerEnvironmentRepositoryTests {
 		when(response.iterateAll()).thenReturn(secrets);
 		Mockito.doReturn(response).when(mock).listSecrets(any(ListSecretsRequest.class));
 		GoogleSecretManagerV1AccessStrategy strategy = new GoogleSecretManagerV1AccessStrategy(rest, provider, mock);
-		assertThat(strategy.getSecrets().size()).isEqualTo(1);
+		assertThat(strategy.getSecrets()).hasSize(1);
 	}
 
 	@Test
 	@SuppressWarnings("unchecked")
-	public void testGetSecretValues() throws IOException {
+	public void testGetSecretValues() {
 		RestTemplate rest = mock(RestTemplate.class);
 		GoogleConfigProvider provider = mock(HttpHeaderGoogleConfigProvider.class);
 		when(provider.getValue(HttpHeaderGoogleConfigProvider.PROJECT_ID_HEADER, true)).thenReturn("test-project");
@@ -97,11 +97,17 @@ public class GoogleSecretManagerEnvironmentRepositoryTests {
 				SecretManagerServiceClient.ListSecretVersionsPagedResponse.class);
 		SecretVersion secret1 = SecretVersion.newBuilder().setName("projects/test-project/secrets/test/versions/1")
 				.setState(SecretVersion.State.ENABLED).build();
-		SecretVersion secret2 = SecretVersion.newBuilder().setName("projects/test-project/secrets/test/versions/2")
-				.setState(SecretVersion.State.DISABLED).build();
+		SecretVersion secret2 = SecretVersion.newBuilder().setName("projects/test-project/secrets/test/versions/4")
+				.setState(SecretVersion.State.ENABLED).build();
+		SecretVersion secret3 = SecretVersion.newBuilder().setName("projects/test-project/secrets/test/versions/9")
+				.setState(SecretVersion.State.ENABLED).build();
+		SecretVersion secret4 = SecretVersion.newBuilder().setName("projects/test-project/secrets/test/versions/12")
+				.setState(SecretVersion.State.ENABLED).build();
 		List<SecretVersion> secrets = new ArrayList<SecretVersion>();
 		secrets.add(secret1);
 		secrets.add(secret2);
+		secrets.add(secret3);
+		secrets.add(secret4);
 		when(response.iterateAll()).thenReturn(secrets);
 		Mockito.doReturn(response).when(mock).listSecretVersions(any(ListSecretVersionsRequest.class));
 		GoogleSecretManagerV1AccessStrategy strategy = new GoogleSecretManagerV1AccessStrategy(rest, provider, mock);
@@ -114,7 +120,7 @@ public class GoogleSecretManagerEnvironmentRepositoryTests {
 		ArgumentMatcher<AccessSecretVersionRequest> matcher = new ArgumentMatcher<AccessSecretVersionRequest>() {
 			@Override
 			public boolean matches(AccessSecretVersionRequest accessSecretVersionRequest) {
-				if (accessSecretVersionRequest.getName().equals("projects/test-project/secrets/test/versions/1")) {
+				if (accessSecretVersionRequest.getName().equals("projects/test-project/secrets/test/versions/12")) {
 					return true;
 				}
 				return false;

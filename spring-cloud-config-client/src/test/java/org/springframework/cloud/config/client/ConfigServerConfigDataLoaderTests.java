@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-2022 the original author or authors.
+ * Copyright 2013-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,17 @@ package org.springframework.cloud.config.client;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
@@ -34,9 +38,12 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import org.springframework.boot.ConfigurableBootstrapContext;
+import org.springframework.boot.context.config.ConfigData;
 import org.springframework.boot.context.config.ConfigDataLoaderContext;
+import org.springframework.boot.context.config.Profiles;
 import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.cloud.config.environment.Environment;
+import org.springframework.cloud.config.environment.PropertySource;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.http.HttpEntity;
@@ -50,6 +57,7 @@ import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.mock.http.client.MockClientHttpRequest;
+import org.springframework.util.ObjectUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
@@ -389,6 +397,148 @@ public class ConfigServerConfigDataLoaderTests {
 		assertThat(this.loader.load(context, resource)).isNotNull();
 	}
 
+	@Test
+	void nonProfileSpecific() {
+		PropertySource p1 = new PropertySource("p1", new HashMap<>());
+		PropertySource p2 = new PropertySource("p2", new HashMap<>());
+		ConfigData configData = setupConfigServerConfigDataLoader(Arrays.asList(p1, p2), "application-slash", null);
+		assertThat(configData.getPropertySources()).hasSize(3);
+		assertThat(configData.getOptions(configData.getPropertySources().get(0))
+				.contains(ConfigData.Option.IGNORE_IMPORTS)).isTrue();
+		assertThat(configData.getOptions(configData.getPropertySources().get(1))
+				.contains(ConfigData.Option.IGNORE_IMPORTS)).isTrue();
+		assertThat(configData.getOptions(configData.getPropertySources().get(2))
+				.contains(ConfigData.Option.IGNORE_IMPORTS)).isTrue();
+
+	}
+
+	@Test
+	public void useDiscoveryUriIfEnabled() throws Exception {
+		String[] uris = new String[] { "http://uritest:8888" };
+		properties.setUri(uris);
+		ConfigClientProperties.Discovery discovery = new ConfigClientProperties.Discovery();
+		discovery.setEnabled(true);
+		discovery.setServiceId("configservice");
+		properties.setDiscovery(discovery);
+		this.loader = new ConfigServerConfigDataLoader(destination -> logger);
+		ClientHttpRequestFactory requestFactory = mock(ClientHttpRequestFactory.class);
+		RestTemplate restTemplate = new RestTemplate(requestFactory);
+		when(bootstrapContext.get(RestTemplate.class)).thenReturn(restTemplate);
+		ConfigClientProperties bootstrapConfigClientProperties = new ConfigClientProperties();
+		bootstrapConfigClientProperties.setDiscovery(discovery);
+		bootstrapConfigClientProperties.setUri(new String[] { "http://configservice:8888" });
+		when(bootstrapContext.get(ConfigClientProperties.class)).thenReturn(bootstrapConfigClientProperties);
+
+		mockRequestResponse(requestFactory, "http://configservice:8888", HttpStatus.OK);
+
+		assertThat(this.loader.load(context, resource)).isNotNull();
+	}
+
+	@Disabled
+	@Test
+	// TODO Enable once we have
+	// https://github.com/spring-cloud/spring-cloud-config/issues/2291
+	void filterPropertySourcesThatAreNotProfileSpecific() {
+		PropertySource p1 = new PropertySource("p1", Collections.singletonMap("foo", "bar"));
+		PropertySource p2 = new PropertySource("p2", Collections.singletonMap("hello", "world"));
+		ConfigData configData = setupConfigServerConfigDataLoader(Arrays.asList(p1, p2), "application-slash", "dev");
+		assertThat(configData.getPropertySources()).isEmpty();
+
+	}
+
+	@Disabled
+	@Test
+	// TODO Enable once we have
+	// https://github.com/spring-cloud/spring-cloud-config/issues/2291
+	void returnPropertySourcesThatAreProfileSpecific() {
+		PropertySource p1 = new PropertySource("p1-dev", Collections.singletonMap("foo", "bar"));
+		PropertySource p2 = new PropertySource("p2-dev", Collections.singletonMap("hello", "world"));
+		List<PropertySource> propertySources = Arrays.asList(p1, p2);
+		ConfigData configData = setupConfigServerConfigDataLoader(propertySources, "application-slash", "dev");
+		assertThat(configData.getPropertySources()).hasSize(2);
+		assertThat(configData.getOptions(configData.getPropertySources().get(0))
+				.contains(ConfigData.Option.IGNORE_IMPORTS)).isTrue();
+		assertThat(configData.getOptions(configData.getPropertySources().get(1))
+				.contains(ConfigData.Option.IGNORE_IMPORTS)).isTrue();
+
+	}
+
+	@Disabled
+	@Test
+	// TODO Enable once we have
+	// https://github.com/spring-cloud/spring-cloud-config/issues/2291
+	void filterPropertySourcesWithDocuments() {
+		PropertySource p1 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/application.yml",
+				Collections.singletonMap("foo", "bar"));
+		PropertySource p2 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/application-foo.yml",
+				Collections.singletonMap("foo", "bar"));
+		PropertySource p3 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/Config resource 'file [/var/folders/k3/zv8hzdm17vv69j485fv3cf9r0000gp/T/config-repo-14772121892716396795/commons/application.properties' via location 'commons/' (document #0)",
+				Collections.singletonMap("hello", "world"));
+		PropertySource p4 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/Config resource 'file [/var/folders/k3/zv8hzdm17vv69j485fv3cf9r0000gp/T/config-repo-14772121892716396795/commons/application-foo.properties' via location 'commons/' (document #0)",
+				Collections.singletonMap("hello", "world"));
+		Map<String, Object> activatesOnProfileCamelCase = new HashMap<>();
+		activatesOnProfileCamelCase.put("spring.config.activate.onProfile", "foo");
+		PropertySource p5 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/Config resource 'file [/var/folders/k3/zv8hzdm17vv69j485fv3cf9r0000gp/T/config-repo-14772121892716396795/commons/application.properties' via location 'commons/' (document #1)",
+				activatesOnProfileCamelCase);
+		Map<String, Object> activatesOnProfile = new HashMap<>();
+		activatesOnProfile.put("spring.config.activate.on-profile", "foo");
+		PropertySource p6 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/Config resource 'file [/var/folders/k3/zv8hzdm17vv69j485fv3cf9r0000gp/T/config-repo-14772121892716396795/commons/application.properties' via location 'commons/' (document #2)",
+				activatesOnProfile);
+		PropertySource p7 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/application-foo.yaml",
+				Collections.singletonMap("hello", "world"));
+		PropertySource p8 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/Config resource 'file [/var/folders/k3/zv8hzdm17vv69j485fv3cf9r0000gp/T/config-repo-14772121892716396795/commons/application-foo.yaml' via location 'commons/' (document #0)",
+				Collections.singletonMap("hello", "world"));
+		PropertySource p9 = new PropertySource(
+				"configserver:git@github.com:demo/support-configuration-repo.git/Config resource 'file [/var/folders/k3/zv8hzdm17vv69j485fv3cf9r0000gp/T/config-repo-14772121892716396795/commons/application-foo.yaml' via location 'commons/' (document #1)",
+				Collections.singletonMap("hello", "world"));
+
+		ConfigData configData = setupConfigServerConfigDataLoader(Arrays.asList(p1, p2, p3, p4, p5, p6, p7, p8, p9),
+				"application-slash", "foo");
+		assertThat(configData.getPropertySources()).hasSize(7);
+
+	}
+
+	private ConfigData setupConfigServerConfigDataLoader(List<PropertySource> propertySources, String applicationName,
+			String... profileList) {
+		RestTemplate rest = mock(RestTemplate.class);
+		Environment environment = new Environment("test", profileList);
+		environment.addAll(propertySources);
+
+		ResponseEntity<Environment> responseEntity = mock(ResponseEntity.class);
+		when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
+		when(responseEntity.getBody()).thenReturn(environment);
+		when(rest.exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), eq(Environment.class),
+				eq(applicationName), ArgumentMatchers.<String>any())).thenReturn(responseEntity);
+
+		ConfigurableBootstrapContext bootstrapContext = mock(ConfigurableBootstrapContext.class);
+		when(bootstrapContext.get(eq(ConfigClientRequestTemplateFactory.class)))
+				.thenReturn(mock(ConfigClientRequestTemplateFactory.class));
+		when(bootstrapContext.get(eq(RestTemplate.class))).thenReturn(rest);
+
+		ConfigServerConfigDataLoader loader = new ConfigServerConfigDataLoader(destination -> mock(Log.class));
+		ConfigDataLoaderContext context = mock(ConfigDataLoaderContext.class);
+		when(context.getBootstrapContext()).thenReturn(bootstrapContext);
+
+		ConfigClientProperties properties = new ConfigClientProperties();
+		properties.setName(applicationName);
+		Profiles profiles = mock(Profiles.class);
+		when(profiles.getAccepted())
+				.thenReturn(profileList == null ? Collections.singletonList("default") : Arrays.asList(profileList));
+		ConfigServerConfigDataResource resource = new ConfigServerConfigDataResource(properties, false, profiles);
+		resource.setProfileSpecific(!ObjectUtils.isEmpty(profileList));
+
+		return loader.doLoad(context, resource);
+
+	}
+
 	private ConfigClientRequestTemplateFactory factory(ConfigClientProperties properties) {
 		return new ConfigClientRequestTemplateFactory(LogFactory.getLog(getClass()), properties);
 	}
@@ -517,13 +667,13 @@ public class ConfigServerConfigDataLoaderTests {
 	@SuppressWarnings("unchecked")
 	private void mockRequestResponseWithoutLabel(ResponseEntity<?> response) {
 		when(this.restTemplate.exchange(any(String.class), any(HttpMethod.class), any(HttpEntity.class),
-				any(Class.class), ArgumentMatchers.<Object>any())).thenReturn(response);
+				any(Class.class), anyString(), anyString())).thenReturn(response);
 	}
 
 	@SuppressWarnings("unchecked")
 	private void mockRequestTimedOut() {
 		when(this.restTemplate.exchange(any(String.class), any(HttpMethod.class), any(HttpEntity.class),
-				any(Class.class), ArgumentMatchers.<Object>any())).thenThrow(ResourceAccessException.class);
+				any(Class.class), anyString(), anyString(), anyString())).thenThrow(ResourceAccessException.class);
 	}
 
 	private void mockRequestTimedOut(ClientHttpRequestFactory requestFactory, String baseURI) throws Exception {

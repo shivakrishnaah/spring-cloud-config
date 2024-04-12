@@ -58,7 +58,7 @@ public class AwsS3EnvironmentRepositoryTests {
 
 	@Container
 	private static final LocalStackContainer localstack = new LocalStackContainer(
-			DockerImageName.parse("localstack/localstack:0.14.2")).withServices(S3);
+			DockerImageName.parse("localstack/localstack:1.3.1")).withServices(S3);
 
 	private final ConfigServerProperties server = new ConfigServerProperties();
 
@@ -126,7 +126,7 @@ public class AwsS3EnvironmentRepositoryTests {
 	@Test
 	public void failToFindNonexistentObject() {
 		Environment env = envRepo.findOne("foo", "bar", null);
-		assertThat(env.getPropertySources().size()).isEqualTo(0);
+		assertThat(env.getPropertySources()).isEmpty();
 	}
 
 	@Test
@@ -181,7 +181,7 @@ public class AwsS3EnvironmentRepositoryTests {
 
 		final Environment env = envRepo.findOne("foo", null, null);
 
-		assertExpectedEnvironment(env, "foo", null, versionId, 1, "default", null);
+		assertExpectedEnvironment(env, "foo", null, versionId, 1, "default");
 	}
 
 	@Test
@@ -190,7 +190,7 @@ public class AwsS3EnvironmentRepositoryTests {
 
 		final Environment env = envRepo.findOne("foo", null, null);
 
-		assertExpectedEnvironment(env, "foo", null, versionId, 1, "default", null);
+		assertExpectedEnvironment(env, "foo", null, versionId, 1, "default");
 	}
 
 	@Test
@@ -210,6 +210,27 @@ public class AwsS3EnvironmentRepositoryTests {
 		final Environment env = envRepo.findOne("foo", "profile1,profile2", null);
 
 		assertExpectedEnvironment(env, "foo", null, versionId, 1, "profile1", "profile2");
+	}
+
+	@Test
+	public void findWithOneProfileDefaultOneFound() throws UnsupportedEncodingException {
+		putFiles("foo-profile1.yml", jsonContent);
+		String versionId = putFiles("foo.yml", yamlContent);
+
+		final Environment env = envRepo.findOne("foo", "profile1", null);
+
+		assertExpectedEnvironment(env, "foo", null, versionId, 2, "profile1");
+	}
+
+	@Test
+	public void findWithNoProfileAndNoServerDefaultOneFound() throws UnsupportedEncodingException {
+		server.setDefaultProfile(null);
+		String versionId = putFiles("foo.yml", yamlContent);
+
+		final Environment env = envRepo.findOne("foo", null, null);
+
+		assertExpectedEnvironment(env, "foo", null, versionId, 1);
+
 	}
 
 	@Test
@@ -238,6 +259,7 @@ public class AwsS3EnvironmentRepositoryTests {
 		final Environment env = envRepo.findOne("foo,bar", "profile1", null);
 
 		assertExpectedEnvironment(env, "foo,bar", null, versionId, 2, "profile1");
+
 	}
 
 	@Test
@@ -291,7 +313,7 @@ public class AwsS3EnvironmentRepositoryTests {
 		assertThat(env.getProfiles()).isEqualTo(profiles);
 		assertThat(env.getLabel()).isEqualTo(label);
 		assertThat(env.getVersion()).isEqualTo(versionId);
-		assertThat(env.getPropertySources().size()).isEqualTo(propertySourceCount);
+		assertThat(env.getPropertySources()).hasSize(propertySourceCount);
 		for (PropertySource ps : env.getPropertySources()) {
 			assertThat(ps.getSource()).isEqualTo(expectedProperties);
 		}
